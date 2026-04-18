@@ -1,0 +1,29 @@
+name: Flush recipe queue
+
+on:
+  schedule:
+    # Every 15 minutes. Adjust as needed.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  flush:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Flush queue to shard repos
+        env:
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          GITHUB_OWNER: ${{ secrets.GH_OWNER }}
+          GITHUB_TOKEN: ${{ secrets.GH_SHARDS_TOKEN }}
+        run: npm run flush-queue

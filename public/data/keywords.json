@@ -1,0 +1,69 @@
+{
+  "cuisines": {
+    "indian": ["indian", "desi", "bharatiya"],
+    "south-indian": ["south indian", "tamil", "andhra", "kerala", "telugu", "karnataka"],
+    "north-indian": ["north indian", "punjabi", "mughlai", "kashmiri"],
+    "italian": ["italian", "tuscan", "sicilian"],
+    "mexican": ["mexican", "tex-mex", "tex mex"],
+    "chinese": ["chinese", "szechuan", "cantonese", "sichuan"],
+    "japanese": ["japanese", "sushi", "ramen"],
+    "thai": ["thai"],
+    "korean": ["korean", "k-food", "kfood"],
+    "german": ["german", "bavarian"],
+    "uk": ["british", "english", "uk", "scottish"],
+    "french": ["french"],
+    "mediterranean": ["mediterranean", "greek"],
+    "middle-eastern": ["middle eastern", "lebanese", "turkish", "persian", "arabic"],
+    "american": ["american", "southern", "soul food"],
+    "spanish": ["spanish", "tapas"],
+    "vietnamese": ["vietnamese", "pho"]
+  },
+  "diets": {
+    "keto": ["keto", "ketogenic", "low-carb", "low carb"],
+    "vegan": ["vegan", "plant-based", "plant based"],
+    "vegetarian": ["vegetarian", "veg"],
+    "gluten-free": ["gluten free", "gluten-free", "gf"],
+    "paleo": ["paleo"],
+    "high-protein": ["high protein", "protein-rich"],
+    "diabetic": ["diabetic", "sugar-free", "low sugar"],
+    "jain": ["jain", "no onion no garlic"],
+    "bata": ["bata"],
+    "dairy-free": ["dairy free", "dairy-free", "lactose free"]
+  },
+  "meals": {
+    "breakfast": ["breakfast", "morning"],
+    "lunch": ["lunch"],
+    "dinner": ["dinner", "supper"],
+    "snack": ["snack", "appetizer", "starter"],
+    "dessert": ["dessert", "sweet", "pudding", "cake"],
+    "brunch": ["brunch"]
+  },
+  "dishes": {
+    "biryani": ["biryani", "biriyani"],
+    "curry": ["curry", "gravy", "masala"],
+    "pasta": ["pasta", "spaghetti", "penne", "lasagna", "fettuccine"],
+    "pizza": ["pizza"],
+    "soup": ["soup", "broth", "stew"],
+    "salad": ["salad"],
+    "stir-fry": ["stir fry", "stir-fry"],
+    "sandwich": ["sandwich", "burger", "wrap"],
+    "rice": ["rice", "fried rice", "pulao"],
+    "noodles": ["noodles", "ramen", "udon"]
+  },
+  "proteins": {
+    "chicken": ["chicken", "poultry"],
+    "beef": ["beef", "steak"],
+    "pork": ["pork", "bacon", "ham"],
+    "fish": ["fish", "salmon", "tuna", "cod"],
+    "shrimp": ["shrimp", "prawn", "prawns"],
+    "paneer": ["paneer", "cottage cheese"],
+    "tofu": ["tofu"],
+    "egg": ["egg", "eggs", "omelette"],
+    "lentils": ["lentils", "dal", "daal"],
+    "chickpeas": ["chickpeas", "chana", "garbanzo"]
+  },
+  "times": {
+    "quick": ["quick", "fast", "under 30", "15 min", "20 min", "30 min"],
+    "slow": ["slow cook", "overnight", "slow-cooked"]
+  }
+}

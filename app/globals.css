@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg-cream: #FFF8EC;
+  --bg-cream-deep: #FFF1D6;
+  --surface: #ffffff;
+  --surface-grad-end: #FFFBF2;
+  --surface-border: rgba(220, 200, 175, 0.55);
+  --text: #2B1D13;
+  --text-muted: rgba(61, 43, 31, 0.7);
+  /* Warm neutral brown shadow instead of saturated orange */
+  --shadow-rgb: 120, 70, 40;
+  /* Lead with green + yellow; orange stays subtle */
+  --glow-1: rgba(255, 182, 152, 0.18);
+  --glow-2: rgba(125, 216, 145, 0.32);
+  --glow-3: rgba(255, 214, 102, 0.30);
+}
+
+html.dark {
+  color-scheme: dark;
+  --bg-cream: #18120E;
+  --bg-cream-deep: #0F0B08;
+  --surface: #23180F;
+  --surface-grad-end: #1B120A;
+  --surface-border: rgba(255, 182, 152, 0.15);
+  --text: #FFECD9;
+  --text-muted: rgba(255, 236, 217, 0.65);
+  --shadow-rgb: 0, 0, 0;
+  --glow-1: rgba(240, 78, 21, 0.14);
+  --glow-2: rgba(46, 182, 83, 0.18);
+  --glow-3: rgba(255, 184, 0, 0.16);
+}
+
+html, body {
+  background-color: var(--bg-cream);
+  color: var(--text);
+}
+
+body {
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, var(--glow-1), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, var(--glow-2), transparent 60%),
+    radial-gradient(800px 400px at 50% 120%, var(--glow-3), transparent 60%);
+  background-attachment: fixed;
+}
+
+.font-display {
+  font-family: "Fraunces", Georgia, serif;
+  letter-spacing: -0.02em;
+}
+
+/* Claymorphic utility classes */
+.clay-surface {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-grad-end) 100%);
+  border: 1px solid var(--surface-border);
+  box-shadow:
+    0 10px 22px -10px rgba(var(--shadow-rgb), 0.22),
+    0 4px 10px -4px rgba(var(--shadow-rgb), 0.10),
+    inset 0 -3px 0 0 rgba(var(--shadow-rgb), 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+}
+html.dark .clay-surface {
+  box-shadow:
+    0 10px 22px -10px rgba(0, 0, 0, 0.5),
+    0 4px 10px -4px rgba(0, 0, 0, 0.35),
+    inset 0 -3px 0 0 rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+.clay-btn {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.clay-btn:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 4px 10px 0 rgba(var(--shadow-rgb), 0.20), inset 0 -1px 0 0 rgba(255,255,255,0.5) !important;
+}
+
+/* Scrollbar in horizontal strips */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Stepper: fade + slide up for the active section on desktop */
+@keyframes stepIn {
+  0% { opacity: 0; transform: translateY(18px); filter: blur(6px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+.animate-step-in {
+  animation: stepIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-step-in { animation: none; }
+}
+
+/* ---------- Dark-mode overrides for commonly-used utility classes ---------- */
+/* Text */
+html.dark .text-ink-700 { color: #FFECD9 !important; }
+html.dark .text-ink-600 { color: #F2D9BF !important; }
+html.dark .text-ink-600\/80 { color: rgba(242, 217, 191, 0.80) !important; }
+html.dark .text-ink-600\/70 { color: rgba(242, 217, 191, 0.70) !important; }
+html.dark .text-ink-600\/60 { color: rgba(242, 217, 191, 0.60) !important; }
+html.dark .text-ink-600\/50 { color: rgba(242, 217, 191, 0.50) !important; }
+html.dark .text-ink-600\/40 { color: rgba(242, 217, 191, 0.40) !important; }
+
+/* Chip/card backgrounds — map white surfaces to dark clay */
+html.dark .bg-white { background-color: #2B1D13 !important; }
+html.dark .bg-white\/80 { background-color: rgba(43, 29, 19, 0.80) !important; }
+html.dark .bg-white\/95 { background-color: rgba(24, 18, 14, 0.92) !important; }
+html.dark .bg-white\/70 { background-color: rgba(43, 29, 19, 0.70) !important; }
+
+/* Cream/brand-tinted soft fills → darker warm tints */
+html.dark .bg-cream-50 { background-color: #1B120A !important; }
+html.dark .bg-cream-50\/60 { background-color: rgba(27, 18, 10, 0.60) !important; }
+html.dark .from-cream-50 { --tw-gradient-from: #1B120A var(--tw-gradient-from-position) !important; }
+html.dark .bg-brand-50 { background-color: rgba(240, 78, 21, 0.10) !important; }
+html.dark .bg-brand-100 { background-color: rgba(240, 78, 21, 0.18) !important; }
+html.dark .bg-herb-100 { background-color: rgba(46, 182, 83, 0.18) !important; }
+html.dark .bg-sun-100 { background-color: rgba(255, 184, 0, 0.18) !important; }
+html.dark .bg-blueberry-100 { background-color: rgba(123, 142, 232, 0.18) !important; }
+
+/* Borders */
+html.dark .border-brand-100 { border-color: rgba(240, 78, 21, 0.30) !important; }
+html.dark .border-brand-200 { border-color: rgba(240, 78, 21, 0.35) !important; }
+html.dark .border-herb-300\/40 { border-color: rgba(125, 216, 145, 0.25) !important; }
+html.dark .border-sun-300\/50 { border-color: rgba(255, 214, 102, 0.30) !important; }
+html.dark .border-blueberry-400\/30 { border-color: rgba(123, 142, 232, 0.30) !important; }
+
+/* Tinted chip/card gradients stay, but lighten text when sitting on dark fills */
+html.dark .text-brand-600 { color: #FFB598 !important; }
+html.dark .text-herb-700 { color: #7DD891 !important; }
+html.dark .text-sun-600 { color: #FFD666 !important; }
+html.dark .text-blueberry-600 { color: #AAB8F0 !important; }
+
+/* Recipe-card gradient tints — compress to lower alpha so text is legible */
+html.dark .from-brand-50 { --tw-gradient-from: rgba(240, 78, 21, 0.15) var(--tw-gradient-from-position) !important; }
+html.dark .from-brand-100 { --tw-gradient-from: rgba(240, 78, 21, 0.22) var(--tw-gradient-from-position) !important; }
+html.dark .from-herb-100 { --tw-gradient-from: rgba(46, 182, 83, 0.22) var(--tw-gradient-from-position) !important; }
+html.dark .from-sun-100 { --tw-gradient-from: rgba(255, 184, 0, 0.22) var(--tw-gradient-from-position) !important; }
+html.dark .from-blueberry-100 { --tw-gradient-from: rgba(123, 142, 232, 0.22) var(--tw-gradient-from-position) !important; }
+html.dark .to-brand-100\/50 { --tw-gradient-to: rgba(240, 78, 21, 0.10) var(--tw-gradient-to-position) !important; }
+html.dark .to-herb-100\/50 { --tw-gradient-to: rgba(46, 182, 83, 0.10) var(--tw-gradient-to-position) !important; }
+html.dark .to-sun-100\/40 { --tw-gradient-to: rgba(255, 184, 0, 0.10) var(--tw-gradient-to-position) !important; }
+html.dark .to-blueberry-100\/50 { --tw-gradient-to: rgba(123, 142, 232, 0.10) var(--tw-gradient-to-position) !important; }
+html.dark .to-brand-50 { --tw-gradient-to: rgba(240, 78, 21, 0.08) var(--tw-gradient-to-position) !important; }
+html.dark .to-herb-50 { --tw-gradient-to: rgba(46, 182, 83, 0.08) var(--tw-gradient-to-position) !important; }
+html.dark .to-sun-50 { --tw-gradient-to: rgba(255, 184, 0, 0.08) var(--tw-gradient-to-position) !important; }
+html.dark .to-blueberry-50 { --tw-gradient-to: rgba(123, 142, 232, 0.08) var(--tw-gradient-to-position) !important; }
+
