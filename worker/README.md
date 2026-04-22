@@ -59,7 +59,44 @@ open http://localhost:5678  →  Executions
 
 # Trigger one manually (bypasses n8n)
 bash ~/frp-shards/generate-recipe.sh
+
+# Count recipes locally (no API)
+for d in ~/frp-shards/repos/recipes-*; do
+  echo "$(basename "$d"): $(ls "$d/recipes" 2>/dev/null | wc -l)"
+done
 ```
+
+## Telegram progress report (3x daily)
+
+`bootstrap.sh` offers to set this up. If you skipped it or want to enable
+later, do this on the worker:
+
+1. On your phone, message **@BotFather** → `/newbot` → copy the HTTP token.
+2. Message **@userinfobot** → copy your numeric *chat id*.
+3. Run:
+
+   ```bash
+   install -Dm600 /dev/stdin ~/.config/frp-report.env <<EOF
+   TG_BOT_TOKEN=123456:ABC-def...
+   TG_CHAT_ID=123456789
+   EOF
+
+   install -Dm644 ~/foodrecipes/worker/systemd/frp-report.service \
+       ~/.config/systemd/user/frp-report.service
+   install -Dm644 ~/foodrecipes/worker/systemd/frp-report.timer \
+       ~/.config/systemd/user/frp-report.timer
+
+   systemctl --user daemon-reload
+   systemctl --user enable --now frp-report.timer
+   systemctl --user start frp-report.service   # send one now
+   ```
+
+Reports fire at **09:00, 15:00, 21:00** local time. Edit
+`~/.config/systemd/user/frp-report.timer` (`OnCalendar=` lines) to change.
+
+Each message shows: total recipes, delta since last report, per-letter
+counts, Ollama up/down, disk free, load avg, uptime.
+
 
 ## Stopping
 

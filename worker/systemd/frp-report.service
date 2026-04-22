@@ -1,0 +1,14 @@
+[Unit]
+Description=foodrecipes.page worker — Telegram progress report
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Load TG_BOT_TOKEN and TG_CHAT_ID from this file (chmod 600).
+# Create it with:
+#   install -Dm600 /dev/stdin ~/.config/frp-report.env <<'EOF'
+#   TG_BOT_TOKEN=123:abc
+#   TG_CHAT_ID=123456789
+#   EOF
+EnvironmentFile=%h/.config/frp-report.env
+ExecStart=%h/frp-shards/report.sh

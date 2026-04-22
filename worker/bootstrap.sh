@@ -81,6 +81,35 @@ fi
 
 echo "==> Step 5/6: install generate-recipe.sh and n8n systemd --user unit"
 install -Dm755 "$SCRIPT_DIR/generate-recipe.sh" "$WORK/generate-recipe.sh"
+install -Dm755 "$SCRIPT_DIR/report.sh"          "$WORK/report.sh"
+
+# ---- Telegram reporter (optional; skip by pressing ENTER at the prompts) ----
+echo ""
+echo "==> Telegram progress reporter (3x daily) — optional"
+echo "    To enable: create a bot via @BotFather and get your chat id from @userinfobot."
+echo "    Leave the token blank to skip for now (you can re-run this script later)."
+read -rp "Telegram bot token (or blank to skip): " TG_TOK || TG_TOK=""
+TG_CHAT=""
+if [[ -n "$TG_TOK" ]]; then
+  read -rp "Telegram chat id: " TG_CHAT
+fi
+if [[ -n "$TG_TOK" && -n "$TG_CHAT" ]]; then
+  install -Dm600 /dev/stdin ~/.config/frp-report.env <<EOF
+TG_BOT_TOKEN=$TG_TOK
+TG_CHAT_ID=$TG_CHAT
+EOF
+  install -Dm644 "$SCRIPT_DIR/systemd/frp-report.service" \
+      ~/.config/systemd/user/frp-report.service
+  install -Dm644 "$SCRIPT_DIR/systemd/frp-report.timer" \
+      ~/.config/systemd/user/frp-report.timer
+  systemctl --user daemon-reload
+  systemctl --user enable --now frp-report.timer
+  # Fire an initial report so you can confirm it works end-to-end now
+  systemctl --user start frp-report.service || true
+  echo "    Telegram reporter installed (09:00, 15:00, 21:00)."
+else
+  echo "    Telegram reporter skipped."
+fi
 
 mkdir -p ~/.config/systemd/user
 cat > ~/.config/systemd/user/n8n.service <<EOF
