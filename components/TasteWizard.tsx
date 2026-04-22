@@ -18,6 +18,8 @@ const CATEGORIES: Category[] = [
     key: "cuisine",
     title: "Cuisine",
     emoji: "🌍",
+    multi: true,
+    maxMulti: 2,
     options: [
       { emoji: "🇮🇳", label: "Indian", value: "indian" },
       { emoji: "🍝", label: "Italian", value: "italian" },
@@ -25,8 +27,11 @@ const CATEGORIES: Category[] = [
       { emoji: "🍜", label: "Thai", value: "thai" },
       { emoji: "🥢", label: "Chinese", value: "chinese" },
       { emoji: "🍣", label: "Japanese", value: "japanese" },
+      { emoji: "🍲", label: "Korean", value: "korean" },
+      { emoji: "🥐", label: "French", value: "french" },
       { emoji: "🥙", label: "Mediterranean", value: "mediterranean" },
       { emoji: "🇺🇸", label: "American", value: "american" },
+      { emoji: "🎲", label: "Surprise fusion", value: "fusion-surprise" },
     ],
   },
   {
@@ -187,7 +192,9 @@ export function TasteWizard({
     if (activeSeeds.length === 0) return "";
     const bits: string[] = [vibeLabel];
     if (sel.meal?.[0]) bits.push(sel.meal[0]);
-    if (sel.cuisine?.[0]) bits.push(sel.cuisine[0]);
+    if (sel.cuisine && sel.cuisine.length > 0) {
+      bits.push(sel.cuisine.length === 2 ? `${sel.cuisine.join(" × ")} fusion` : sel.cuisine[0]);
+    }
     if (sel.protein?.[0]) bits.push(`with ${sel.protein[0]}`);
     if (sel.fruits && sel.fruits.length > 0) bits.push(`featuring ${sel.fruits.join(" & ")}`);
     if (sel.time?.[0]) bits.push(sel.time[0]);
@@ -211,9 +218,27 @@ export function TasteWizard({
     const ingredients: string[] = activeSeeds.map((v) => v.label.toLowerCase());
     if (sel.protein?.[0]) ingredients.push(sel.protein[0]);
     if (sel.fruits) ingredients.push(...sel.fruits);
+    // Resolve cuisine: support multi-select fusion + "surprise" random pairing.
+    const FUSION_POOL = [
+      "indian", "italian", "mexican", "thai", "chinese",
+      "japanese", "korean", "french", "mediterranean", "american",
+    ];
+    const rawCuisines = sel.cuisine ?? [];
+    const resolvedCuisines = rawCuisines.flatMap((c) => {
+      if (c !== "fusion-surprise") return [c];
+      // Pick 2 distinct random cuisines excluding any already chosen.
+      const pool = FUSION_POOL.filter((x) => !rawCuisines.includes(x));
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      return shuffled.slice(0, 2);
+    });
+    const uniqueCuisines = Array.from(new Set(resolvedCuisines)).slice(0, 2);
+    const cuisineField =
+      uniqueCuisines.length === 2
+        ? `${uniqueCuisines.join("-")} fusion`
+        : uniqueCuisines[0] ?? null;
     return {
       ingredients,
-      cuisine: sel.cuisine?.[0] ?? null,
+      cuisine: cuisineField,
       diet: sel.allergies && sel.allergies.length > 0 ? `avoid ${sel.allergies.join(", ")}` : null,
       meal: sel.meal?.[0] ?? null,
       dish: null,
