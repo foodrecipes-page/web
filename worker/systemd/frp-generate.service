@@ -1,0 +1,11 @@
+[Unit]
+Description=foodrecipes.page — generate one recipe
+After=network-online.target
+
+[Service]
+Type=oneshot
+# MODEL / WORK overrides optional; sensible defaults live in the script.
+Environment=MODEL=qwen2.5:3b
+ExecStart=%h/frp-shards/generate-recipe.sh
+# Don't let a single bad tick retry-spam
+TimeoutStartSec=10min

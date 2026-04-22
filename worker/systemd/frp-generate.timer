@@ -1,0 +1,13 @@
+[Unit]
+Description=Run frp-generate every minute
+
+[Timer]
+# Fire ~1 minute after boot, then every minute
+OnBootSec=60
+OnUnitActiveSec=60
+# If a run takes longer than 60s, the next tick simply waits — no overlap
+AccuracySec=5s
+Unit=frp-generate.service
+
+[Install]
+WantedBy=timers.target
