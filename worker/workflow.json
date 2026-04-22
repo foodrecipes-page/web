@@ -1,0 +1,68 @@
+{
+  "name": "foodrecipes-page recipe generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "command": "bash $HOME/frp-shards/generate-recipe.sh 2>&1"
+      },
+      "id": "exec-generate",
+      "name": "Generate + commit recipe",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "summary",
+              "value": "={{ $json.stdout || $json.stderr || 'no output' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-result",
+      "name": "Log result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [760, 300]
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [[{ "node": "Generate + commit recipe", "type": "main", "index": 0 }]]
+    },
+    "Generate + commit recipe": {
+      "main": [[{ "node": "Log result", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": false,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "UTC"
+  },
+  "pinData": {}
+}
