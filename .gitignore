@@ -27,3 +27,7 @@ chat.json
 chat.md
 *.tsbuildinfo
 
+# raw datasets (multi-GB, licensed — never commit)
+frp-datasets/
+/datasets/
+

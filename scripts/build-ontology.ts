@@ -104,9 +104,14 @@ async function* streamCSV(path: string): AsyncGenerator<string[]> {
 
 // ---------- 1. RecipeNLG: ingredient frequency + technique verbs ----------
 async function mineRecipeNLG() {
-  const path = join(RAW, "recipenlg/full_dataset.csv");
-  if (!existsSync(path)) { console.log("   (recipenlg not present — skipping)"); return; }
-  console.log("==> mining RecipeNLG...");
+  // Dataset ships as RecipeNLG_dataset.csv (older variants used full_dataset.csv)
+  const candidates = [
+    join(RAW, "recipenlg/RecipeNLG_dataset.csv"),
+    join(RAW, "recipenlg/full_dataset.csv"),
+  ];
+  const path = candidates.find((p) => existsSync(p));
+  if (!path) { console.log("   (recipenlg not present — skipping)"); return; }
+  console.log(`==> mining RecipeNLG from ${path}...`);
   let rows = 0;
   const techniques = new Map<string, number>();
   const COOK_VERBS = /\b(saute|sear|grill|roast|bake|fry|stir-fry|steam|boil|simmer|poach|braise|broil|smoke|cure|marinate|ferment|pickle|caramelize|reduce|deglaze|whisk|fold|knead|rest|temper|tadka|bhuna|dum)\b/g;
@@ -165,8 +170,35 @@ async function mineMealDB() {
   return { cuisines, categories, ingredients };
 }
 
+// ---------- 4. USDA Foundation Foods: authoritative ingredient names ----------
+function mineUSDA(): string[] {
+  const path = join(RAW, "usda/foundation_food.json");
+  if (!existsSync(path)) { console.log("   (usda not present — skipping)"); return []; }
+  console.log("==> mining USDA Foundation Foods...");
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    const foods = data.FoundationFoods ?? data.foundationFoods ?? [];
+    const names = new Set<string>();
+    for (const f of foods) {
+      const desc = (f.description ?? "").toLowerCase();
+      if (!desc) continue;
+      // Keep only the core food name: "Hummus, commercial" -> "hummus"
+      const core = desc.split(",")[0].trim();
+      if (core && core.length >= 2 && core.length <= 30) {
+        names.add(core.replace(/\s+/g, " "));
+      }
+    }
+    console.log(`   ${names.size} unique USDA ingredient names`);
+    return [...names];
+  } catch (err) {
+    console.log(`   usda parse failed: ${(err as Error).message}`);
+    return [];
+  }
+}
+
 // ---------- main ----------
 async function main() {
+  const usda = mineUSDA();
   const [nlg, , mealdb] = await Promise.all([
     mineRecipeNLG(),
     mineFoodCom(),
@@ -185,6 +217,7 @@ async function main() {
   // Merge MealDB canonical ingredients at the top
   const ingredientSet = new Set<string>();
   for (const i of mealdb?.ingredients ?? []) ingredientSet.add(i);
+  for (const i of usda) ingredientSet.add(i);
   for (const i of topIngredients) ingredientSet.add(i);
 
   // Tags -> meals / occasions / diets (intersected with our manual vocab)

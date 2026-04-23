@@ -55,14 +55,18 @@ if [[ ! -f openfoodfacts/en.openfoodfacts.org.products.csv ]]; then
 fi
 
 echo ""
-echo "==> 5/6  USDA FoodData Central — authoritative ingredient names (~400 MB)"
+echo "==> 5/6  USDA FoodData Central — authoritative ingredient names (~6 MB Foundation)"
 if [[ ! -f usda/foundation_food.json ]]; then
   mkdir -p usda && cd usda
-  # Foundation dataset is the cleanest; swap for 'full' if you want everything
   curl -L --progress-bar -o fdc.zip \
     "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2024-04-18.zip"
   unzip -oq fdc.zip
-  mv FoodData_Central_foundation_food_json_*.json foundation_food.json
+  # The zip contains foundationDownload.json (name has changed over the years);
+  # normalize to a stable name.
+  for f in foundationDownload.json FoodData_Central_foundation_food_json_*.json; do
+    [[ -f "$f" ]] && mv -f "$f" foundation_food.json && break
+  done
+  rm -f fdc.zip
   cd ..
 fi
 
