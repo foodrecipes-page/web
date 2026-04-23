@@ -1,11 +1,20 @@
 [Unit]
 Description=foodrecipes.page — generate one recipe
-After=network-online.target
+After=network-online.target ollama.service
+Wants=ollama.service
 
 [Service]
 Type=oneshot
 # MODEL / WORK overrides optional; sensible defaults live in the script.
 Environment=MODEL=qwen2.5:3b
+# Unload the model 30s after each call so it doesn't squat in RAM between ticks.
+Environment=OLLAMA_KEEP_ALIVE=30s
 ExecStart=%h/frp-shards/generate-recipe.sh
-# Don't let a single bad tick retry-spam
-TimeoutStartSec=10min
+# Give a single tick up to 8 min, then kill it so the next cycle is clean.
+TimeoutStartSec=8min
+# Soft memory cap — if the whole tick (bash + child curl) ever blows past 1 GB,
+# the kernel throttles writes. Ollama itself runs in its own service.
+MemoryHigh=1G
+MemoryMax=1500M
+# Cap CPU at ~80% of one core so an old laptop stays responsive and cool.
+CPUWeight=50

@@ -1,12 +1,14 @@
 [Unit]
-Description=Run frp-generate every minute
+Description=Run frp-generate every 3 minutes
 
 [Timer]
-# Fire ~1 minute after boot, then every minute
-OnBootSec=60
-OnUnitActiveSec=60
-# If a run takes longer than 60s, the next tick simply waits — no overlap
-AccuracySec=5s
+# Wait 2 min after boot so the system settles and ollama warms.
+OnBootSec=2min
+# 3 min between runs — gives an old 8 GB laptop breathing room and keeps
+# ollama's model unload cycle (OLLAMA_KEEP_ALIVE=30s) working. Bump to 60s
+# once you're confident the box handles it.
+OnUnitActiveSec=3min
+AccuracySec=15s
 Unit=frp-generate.service
 
 [Install]

@@ -50,6 +50,30 @@ Change interval by editing `~/.config/systemd/user/frp-generate.timer`
 (`OnUnitActiveSec=`) then `systemctl --user daemon-reload` +
 `systemctl --user restart frp-generate.timer`.
 
+Default is **every 3 minutes** on 8 GB boxes (≈ 480 recipes/day). Once you
+see stable runs, you can drop to `60s` for ~3× more throughput.
+
+## If the laptop starts auto-rebooting
+
+Usually means an overlap or memory spike. Boot, then IMMEDIATELY:
+
+```bash
+systemctl --user disable --now frp-generate.timer
+systemctl --user disable --now frp-report.timer 2>/dev/null
+```
+
+Then diagnose:
+
+```bash
+journalctl -k -b -1 | grep -iE 'oom|killed|panic' | tail
+free -h
+```
+
+If you see `Out of memory` lines, the built-in fixes (swap, memory caps,
+OLLAMA_KEEP_ALIVE=30s, 3-min interval, flock single-instance, RAM-guard
+skip-when-low) should already handle it — just re-run `bootstrap.sh` to
+pull the newest config.
+
 ## Monitoring
 
 ```bash

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Generates ONE recipe into the next shard (round-robin) and pushes it.
-# Invoked by n8n every minute. Safe to run concurrently — each run picks a
-# different letter from .cursor and each shard is a separate repo.
+# Invoked by the systemd timer frp-generate.timer.
 #
-# Requires: ollama running on :11434, jq, curl, git (with SSH key loaded).
+# Requires: ollama on :11434, jq, curl, git (SSH key loaded).
 # Env overrides: WORK (default $HOME/frp-shards), MODEL (default qwen2.5:3b).
 
 set -euo pipefail
@@ -13,9 +12,24 @@ MODEL="${MODEL:-qwen2.5:3b}"
 ORG="foodrecipes-page"
 LETTERS=(a b c d e f g h i j k l m n o p q r s t u v w x y z misc)
 
+# ---------- single-instance lock (belt-and-braces over Type=oneshot) ----------
+mkdir -p "$WORK"
+exec 9>"$WORK/.lock"
+if ! flock -n 9; then
+  echo "previous run still going, skipping this tick"
+  exit 0
+fi
+
+# ---------- RAM guard: bail out if free memory is dangerously low ----------
+# Prevents OOM cascades on 8 GB boxes when some other desktop process spikes.
+avail_kb=$(awk '/^MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 999999999)
+if (( avail_kb < 500000 )); then
+  echo "low memory ($(( avail_kb / 1024 )) MB available) — skipping tick"
+  exit 0
+fi
+
 # ---------- round-robin letter selection ----------
 cursor_file="$WORK/.cursor"
-mkdir -p "$WORK"
 idx=$(cat "$cursor_file" 2>/dev/null || echo 0)
 (( idx = idx % ${#LETTERS[@]} ))
 letter="${LETTERS[$idx]}"

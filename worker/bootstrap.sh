@@ -19,6 +19,23 @@ echo "==> Step 1/5: system packages (git, curl, jq)"
 sudo apt update -qq
 sudo apt install -y -qq git curl jq ca-certificates
 
+# ---- 4 GB swap safety net (prevents OOM reboots on 8 GB boxes) ----
+if ! swapon --show=NAME --noheadings | grep -q .; then
+  if [[ ! -f /swapfile ]]; then
+    echo "    creating 4 GB swapfile (one-time)"
+    sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=progress
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+  fi
+  sudo swapon /swapfile
+  if ! grep -q '^/swapfile' /etc/fstab; then
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+  fi
+fi
+# Prefer RAM; only swap under real pressure. Reduces churn on old disks.
+sudo sysctl -w vm.swappiness=10 >/dev/null
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-frp-swappiness.conf >/dev/null
+
 echo "==> Step 2/5: SSH key"
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 KEY=~/.ssh/id_ed25519_frp
