@@ -17,7 +17,7 @@ LETTERS=(a b c d e f g h i j k l m n o p q r s t u v w x y z misc)
 
 echo "==> Updating apt and installing core packages"
 sudo apt update -qq
-sudo apt install -y -qq git curl jq ca-certificates coreutils util-linux
+sudo apt install -y -qq git curl jq ca-certificates coreutils util-linux zstd xz-utils tar
 
 # ---- 4 GB swap (lifesaver on 8 GB boxes) ----
 if ! swapon --show=NAME --noheadings | grep -q .; then
