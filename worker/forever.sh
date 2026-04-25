@@ -205,15 +205,25 @@ do_tick() {
   echo "[$(date '+%T')] combo: $combo"
 
   # 1. Ask for a dish name matching this combo. Retry once if slug is malformed.
+  # Uses a structured 4-field prompt — empirically gives the best
+  # multi-word, ASCII, cuisine-led names with qwen2.5:3b.
   local name_raw name slug attempt=0
+  local name_extras=""
   while (( attempt < 2 )); do
     attempt=$(( attempt + 1 ))
-    name_raw=$(ollama_json "Give ONE real or plausible dish name (2-6 words) for this brief: $combo.
-The name MUST be multiple words separated by spaces (e.g. \"Smoky Lamb Tagine\", \"Indian Spiced Carrot Soup\"). NO single-word names. NO camelCase.
-Prefer leading the name with the cuisine adjective (Italian, Indian, Thai, etc.) or the primary ingredient when natural.
-Use only plain ASCII letters in the name (no accents).
-Return JSON: {\"name\": string}. ONLY JSON.")
+    name_raw=$(ollama_json "For this brief: $combo
+
+Return ONLY JSON with these fields:
+{
+  \"cuisine_adjective\": string  (e.g. \"Italian\", \"Indian\", \"Zanzibari\", \"Korean\"),
+  \"main_ingredient\":   string  (the primary ingredient noun, e.g. \"almonds\", \"lamb\"),
+  \"descriptor\":        string  (1-2 adjectives like \"Crispy\", \"Smoky Roasted\"),
+  \"dish_form\":         string  (e.g. \"Pilaf\", \"Skewers\", \"Crumble\", \"Stir-fry\", \"Soup\"),
+  \"name\":              string  (\"<descriptor> <cuisine_adjective> <main_ingredient> <dish_form>\", 3-6 words)
+}
+Plain ASCII letters and spaces only — NO accents, NO unicode, NO camelCase, NO glued words.")
     name=$(jq -r '.name // empty' <<<"$name_raw" 2>/dev/null)
+    name_extras=$(jq -c '{cuisine_adjective: (.cuisine_adjective//null), main_ingredient: (.main_ingredient//null), descriptor: (.descriptor//null), dish_form: (.dish_form//null)}' <<<"$name_raw" 2>/dev/null)
     [[ -z "$name" ]] && { echo "  ollama gave no name (attempt $attempt)"; continue; }
     slug=$(slugify "$name")
     if slug_ok "$slug"; then break; fi
@@ -270,7 +280,8 @@ Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps.")
     --arg now "$(date -u +%FT%TZ)" \
     --arg flavor "$flavor" --arg texture "$texture" --arg mood "$mood" \
     --arg technique "$technique" --arg ingredient "$ingredient" --arg diet "$diet" \
-    --arg region "${region:-}" '
+    --arg region "${region:-}" \
+    --argjson nx "${name_extras:-null}" '
     . + {
       slug: $slug,
       source: ("ollama-" + $model),
@@ -280,7 +291,11 @@ Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps.")
       axes: {
         flavor: $flavor, texture: $texture, mood: $mood,
         technique: $technique, primaryIngredient: $ingredient,
-        diet: $diet, region: (if $region=="" then null else $region end)
+        diet: $diet, region: (if $region=="" then null else $region end),
+        cuisineAdjective: ($nx.cuisine_adjective // null),
+        mainIngredient:   ($nx.main_ingredient // null),
+        descriptor:       ($nx.descriptor // null),
+        dishForm:         ($nx.dish_form // null)
       }
     }' <<<"$recipe_raw")
 
