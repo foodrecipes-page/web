@@ -113,9 +113,25 @@ ollama_json() {
 }
 
 slugify() {
-  echo "$1" | tr '[:upper:]' '[:lower:]' \
-    | sed 's/[^a-z0-9]\+/-/g; s/^-\+//; s/-\+$//' \
+  # 1. ASCII-fold (é→e, ñ→n, etc.) — //TRANSLIT may fail on rare glyphs, fall back to IGNORE.
+  local ascii
+  ascii=$(printf '%s' "$1" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null) \
+    || ascii=$(printf '%s' "$1" | iconv -f UTF-8 -t ASCII//IGNORE 2>/dev/null) \
+    || ascii="$1"
+  printf '%s' "$ascii" \
+    | sed -E 's/([a-z0-9])([A-Z])/\1-\2/g' \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//" \
     | cut -c1-80
+}
+
+# Slug is "good" if it has at least 2 hyphen-separated segments and >= 6 chars.
+slug_ok() {
+  local s="$1"
+  [[ -n "$s" ]] || return 1
+  [[ ${#s} -ge 6 ]] || return 1
+  [[ "$s" == *-* ]] || return 1
+  return 0
 }
 
 # ---------- hourly report ----------
@@ -188,16 +204,25 @@ do_tick() {
   local combo="$flavor, $texture, $mood $cuisine${region:+ ($region)} dish featuring $ingredient, $technique, $diet-friendly"
   echo "[$(date '+%T')] combo: $combo"
 
-  # 1. Ask for a dish name matching this combo.
-  local name_raw name slug
-  name_raw=$(ollama_json "Give ONE real or plausible dish name for this brief: $combo.
-Return JSON: {\"name\": string, \"letter\": string (the first letter a-z)}. ONLY JSON.")
-  name=$(jq -r '.name // empty' <<<"$name_raw" 2>/dev/null)
-  if [[ -z "$name" ]]; then
-    echo "  ollama gave no name"; state_bump fail; return 0
+  # 1. Ask for a dish name matching this combo. Retry once if slug is malformed.
+  local name_raw name slug attempt=0
+  while (( attempt < 2 )); do
+    attempt=$(( attempt + 1 ))
+    name_raw=$(ollama_json "Give ONE real or plausible dish name (2-6 words) for this brief: $combo.
+The name MUST be multiple words separated by spaces (e.g. \"Smoky Lamb Tagine\", \"Indian Spiced Carrot Soup\"). NO single-word names. NO camelCase.
+Prefer leading the name with the cuisine adjective (Italian, Indian, Thai, etc.) or the primary ingredient when natural.
+Use only plain ASCII letters in the name (no accents).
+Return JSON: {\"name\": string}. ONLY JSON.")
+    name=$(jq -r '.name // empty' <<<"$name_raw" 2>/dev/null)
+    [[ -z "$name" ]] && { echo "  ollama gave no name (attempt $attempt)"; continue; }
+    slug=$(slugify "$name")
+    if slug_ok "$slug"; then break; fi
+    echo "  malformed slug '$slug' from name '$name' (attempt $attempt)"
+    slug=""
+  done
+  if [[ -z "$slug" ]]; then
+    state_bump fail; return 0
   fi
-  slug=$(slugify "$name")
-  [[ -z "$slug" ]] && { echo "  empty slug"; state_bump fail; return 0; }
 
   # Route to shard by first letter of slug.
   local letter="${slug:0:1}"
