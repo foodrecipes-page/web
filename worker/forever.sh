@@ -218,10 +218,11 @@ Return ONLY JSON with these fields:
   \"cuisine_adjective\": string  (e.g. \"Italian\", \"Indian\", \"Zanzibari\", \"Korean\"),
   \"main_ingredient\":   string  (the primary ingredient noun, e.g. \"almonds\", \"lamb\"),
   \"descriptor\":        string  (1-2 adjectives like \"Crispy\", \"Smoky Roasted\"),
-  \"dish_form\":         string  (e.g. \"Pilaf\", \"Skewers\", \"Crumble\", \"Stir-fry\", \"Soup\"),
-  \"name\":              string  (\"<descriptor> <cuisine_adjective> <main_ingredient> <dish_form>\", 3-6 words)
+  "dish_form":         string  (PICK ONE that fits the brief from this list: Soup, Stew, Chowder, Bisque, Broth, Curry, Tagine, Dal, Risotto, Pilaf, Biryani, Paella, Fried-Rice, Noodles, Ramen, Pho, Pasta, Lasagna, Dumplings, Bao, Gyoza, Tacos, Burrito, Quesadilla, Wrap, Sandwich, Slider, Burger, Flatbread, Pizza, Calzone, Toast, Salad, Bowl, Poke, Skewers, Kebabs, Satay, Brochette, Stir-fry, Hash, Skillet, Frittata, Omelette, Quiche, Tart, Galette, Pie, Crumble, Cobbler, Bake, Casserole, Gratin, Confit, Roast, Grill, Ceviche, Carpaccio, Tartare, Terrine, Pate, Mousse, Pudding, Custard, Trifle, Parfait, Cake, Cookies, Bars, Brownies, Muffins, Scones, Pancakes, Waffles, Crepes, Fritters, Croquettes, Empanadas, Samosas, Spring-Rolls, Sushi, Onigiri),
+  "name":              string  (\"<descriptor> <cuisine_adjective> <main_ingredient> <dish_form>\", 3-6 words)
 }
-Plain ASCII letters and spaces only — NO accents, NO unicode, NO camelCase, NO glued words.")
+Plain ASCII letters and spaces only — NO accents, NO unicode, NO camelCase, NO glued words.
+DO NOT default to Stir-fry or Crumble unless the technique truly demands it — match dish_form to the cuisine and technique.")
     name=$(jq -r '.name // empty' <<<"$name_raw" 2>/dev/null)
     name_extras=$(jq -c '{cuisine_adjective: (.cuisine_adjective//null), main_ingredient: (.main_ingredient//null), descriptor: (.descriptor//null), dish_form: (.dish_form//null)}' <<<"$name_raw" 2>/dev/null)
     [[ -z "$name" ]] && { echo "  ollama gave no name (attempt $attempt)"; continue; }
@@ -245,9 +246,9 @@ Plain ASCII letters and spaces only — NO accents, NO unicode, NO camelCase, NO
     echo "  dup: $slug"; state_bump skipped; return 0
   fi
 
-  # 2. Full recipe.
-  local recipe_raw recipe
-  recipe_raw=$(ollama_json "Generate a complete realistic recipe for \"$name\" (brief: $combo).
+  # 2. Full recipe (retry once if shape is invalid).
+  local recipe_raw recipe recipe_attempt=0 recipe_prompt
+  recipe_prompt="Generate a complete realistic recipe for \"$name\" (brief: $combo).
 Return ONLY valid JSON matching this shape — no markdown, no commentary:
 {
   \"title\": string,
@@ -265,12 +266,19 @@ Return ONLY valid JSON matching this shape — no markdown, no commentary:
   \"tags\": string[] (lowercase, kebab-case),
   \"nutrition\": {\"calories\": number, \"protein\": number, \"carbs\": number, \"fat\": number}
 }
-Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps.")
-
-  # Validate shape.
-  if ! jq -e '(.title|type=="string") and (.ingredients|type=="array") and (.instructions|type=="array") and (.ingredients|length>0) and (.instructions|length>0)' \
-       >/dev/null 2>&1 <<<"$recipe_raw"; then
-    echo "  invalid recipe shape for $slug"; state_bump fail; return 0
+Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps."
+  while (( recipe_attempt < 2 )); do
+    recipe_attempt=$(( recipe_attempt + 1 ))
+    recipe_raw=$(ollama_json "$recipe_prompt")
+    if jq -e '(.title|type=="string") and (.ingredients|type=="array") and (.instructions|type=="array") and (.ingredients|length>0) and (.instructions|length>0)' \
+         >/dev/null 2>&1 <<<"$recipe_raw"; then
+      break
+    fi
+    echo "  invalid recipe shape for $slug (attempt $recipe_attempt)"
+    recipe_raw=""
+  done
+  if [[ -z "$recipe_raw" ]]; then
+    state_bump fail; return 0
   fi
 
   # Enrich with metadata + combo fingerprint.
