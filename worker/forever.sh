@@ -140,7 +140,7 @@ maybe_report() {
   local now=$(date +%s)
   local mark; mark=$(jq -r '.hourly_mark' "$STATE_FILE")
   local elapsed=$(( now - mark ))
-  (( elapsed >= 3600 )) || return 0
+  (( elapsed >= 1800 )) || return 0
 
   # Per-letter counts (local, no API)
   local total=0
@@ -166,7 +166,7 @@ maybe_report() {
 $(date '+%F %T %Z')
 
 *Total recipes on disk:* $total
-*This hour:* OK $ok · FAIL $fail · SKIP $skip
+*Last 30 min:* OK $ok · FAIL $fail · SKIP $skip
 *Uptime:* ${up_min} min   *Free RAM:* ${free_mb} MB
 
 \`\`\`
