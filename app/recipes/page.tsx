@@ -1,20 +1,21 @@
-import type { RecipeIndexEntry } from "@/lib/types";
-
-const OWNER = process.env.GITHUB_OWNER || "your-github-username";
-const SHARDS = "abcdefghijklmnopqrstuvwxyz".split("");
-
-async function loadShardIndex(letter: string): Promise<RecipeIndexEntry[]> {
-  const url = `https://cdn.jsdelivr.net/gh/${OWNER}/recipes-${letter}@main/index.json`;
-  try {
-    const res = await fetch(url, { next: { revalidate: 3600 } });
-    if (!res.ok) return [];
-    return (await res.json()) as RecipeIndexEntry[];
-  } catch {
-    return [];
-  }
-}
+import type { Metadata } from "next";
+import { loadCatalog, cuisineFacets, tagFacets } from "@/lib/catalog";
 
 export const revalidate = 3600;
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://foodrecipes.page";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const all = await loadCatalog();
+  const title = `Browse ${all.length} recipes — free AI cookbook`;
+  const description = `Open recipe cache: ${all.length} AI-generated dishes across world cuisines. Full ingredients, step-by-step instructions, free forever.`;
+  return {
+    title,
+    description,
+    alternates: { canonical: `${SITE_URL}/recipes` },
+    openGraph: { title, description, url: `${SITE_URL}/recipes`, type: "website" },
+  };
+}
 
 const CARD_TINTS = [
   "from-brand-50 to-brand-100/40 border-brand-200",
@@ -24,8 +25,11 @@ const CARD_TINTS = [
 ];
 
 export default async function RecipesPage() {
-  const all = (await Promise.all(SHARDS.map(loadShardIndex))).flat();
+  const all = await loadCatalog();
   all.sort((a, b) => a.title.localeCompare(b.title));
+
+  const cuisines = cuisineFacets(all).filter((f) => f.count >= 5).slice(0, 18);
+  const tags = tagFacets(all).filter((f) => f.count >= 8).slice(0, 24);
 
   return (
     <div className="py-4">
@@ -41,6 +45,44 @@ export default async function RecipesPage() {
           {all.length > 0 && <> · all free, all AI-generated, all yours to remix.</>}
         </p>
       </div>
+
+      {cuisines.length > 0 && (
+        <section className="mb-8">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-600/50 mb-2">
+            🌍 Browse by cuisine
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {cuisines.map((c) => (
+              <a
+                key={c.slug}
+                href={`/cuisine/${c.slug}`}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white border-2 border-brand-100 text-ink-600 hover:border-brand-300 hover:text-brand-600 hover:-translate-y-0.5 shadow-clay-sm transition-all"
+              >
+                {c.label} <span className="text-ink-600/50">({c.count})</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tags.length > 0 && (
+        <section className="mb-10">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-600/50 mb-2">
+            #️⃣ Popular tags
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {tags.map((t) => (
+              <a
+                key={t.slug}
+                href={`/tag/${t.slug}`}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white border-2 border-herb-200/60 text-ink-600 hover:border-herb-400 hover:text-herb-700 hover:-translate-y-0.5 shadow-clay-sm transition-all"
+              >
+                #{t.slug} <span className="text-ink-600/50">({t.count})</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {all.length === 0 ? (
         <div className="clay-surface rounded-[2rem] p-10 md:p-14 text-center max-w-xl mx-auto relative overflow-hidden">
