@@ -38,7 +38,7 @@ set -uo pipefail  # NOT -e: we WANT the loop to keep going on errors
 GH_ORG="${GH_ORG:-foodrecipes-page}"
 WORK="${WORK:-$HOME/frp-shards}"
 ONTOLOGY="${ONTOLOGY:-$WORK/ontology.json}"
-MODEL="${MODEL:-qwen3:4b}"
+MODEL="${MODEL:-qwen2.5:3b}"
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
 LOOP_SLEEP="${LOOP_SLEEP:-10}"
 STATE_FILE="$HOME/frp-state.json"
