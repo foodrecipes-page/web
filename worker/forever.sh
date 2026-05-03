@@ -208,7 +208,7 @@ do_tick() {
   # 1. Ask for a dish name matching this combo. Retry once if slug is malformed.
   # Uses a structured 4-field prompt — empirically gives the best
   # multi-word, ASCII, cuisine-led names with qwen2.5:3b.
-  local name_raw name slug attempt=0
+  local name_raw name slug="" attempt=0
   local name_extras=""
   while (( attempt < 2 )); do
     attempt=$(( attempt + 1 ))
@@ -219,8 +219,8 @@ Return ONLY JSON with these fields:
   \"cuisine_adjective\": string  (e.g. \"Italian\", \"Indian\", \"Zanzibari\", \"Korean\"),
   \"main_ingredient\":   string  (the primary ingredient noun, e.g. \"almonds\", \"lamb\"),
   \"descriptor\":        string  (1-2 adjectives like \"Crispy\", \"Smoky Roasted\"),
-  "dish_form":         string  (PICK ONE that fits the brief from this list: Soup, Stew, Chowder, Bisque, Broth, Curry, Tagine, Dal, Risotto, Pilaf, Biryani, Paella, Fried-Rice, Noodles, Ramen, Pho, Pasta, Lasagna, Dumplings, Bao, Gyoza, Tacos, Burrito, Quesadilla, Wrap, Sandwich, Slider, Burger, Flatbread, Pizza, Calzone, Toast, Salad, Bowl, Poke, Skewers, Kebabs, Satay, Brochette, Stir-fry, Hash, Skillet, Frittata, Omelette, Quiche, Tart, Galette, Pie, Crumble, Cobbler, Bake, Casserole, Gratin, Confit, Roast, Grill, Ceviche, Carpaccio, Tartare, Terrine, Pate, Mousse, Pudding, Custard, Trifle, Parfait, Cake, Cookies, Bars, Brownies, Muffins, Scones, Pancakes, Waffles, Crepes, Fritters, Croquettes, Empanadas, Samosas, Spring-Rolls, Sushi, Onigiri),
-  "name":              string  (\"<descriptor> <cuisine_adjective> <main_ingredient> <dish_form>\", 3-6 words)
+  \"dish_form\":         string  (PICK ONE that fits the brief from this list: Soup, Stew, Chowder, Bisque, Broth, Curry, Tagine, Dal, Risotto, Pilaf, Biryani, Paella, Fried-Rice, Noodles, Ramen, Pho, Pasta, Lasagna, Dumplings, Bao, Gyoza, Tacos, Burrito, Quesadilla, Wrap, Sandwich, Slider, Burger, Flatbread, Pizza, Calzone, Toast, Salad, Bowl, Poke, Skewers, Kebabs, Satay, Brochette, Stir-fry, Hash, Skillet, Frittata, Omelette, Quiche, Tart, Galette, Pie, Crumble, Cobbler, Bake, Casserole, Gratin, Confit, Roast, Grill, Ceviche, Carpaccio, Tartare, Terrine, Pate, Mousse, Pudding, Custard, Trifle, Parfait, Cake, Cookies, Bars, Brownies, Muffins, Scones, Pancakes, Waffles, Crepes, Fritters, Croquettes, Empanadas, Samosas, Spring-Rolls, Sushi, Onigiri),
+  \"name\":              string  (\"<descriptor> <cuisine_adjective> <main_ingredient> <dish_form>\", 3-6 words)
 }
 Plain ASCII letters and spaces only — NO accents, NO unicode, NO camelCase, NO glued words.
 DO NOT default to Stir-fry or Crumble unless the technique truly demands it — match dish_form to the cuisine and technique.")
