@@ -77,11 +77,15 @@ state_bump()  {
 }
 
 # Initialize started_at and hourly_mark if brand new.
+# is_fresh_start is true only the very first run (used to gate the
+# Telegram "started" announcement so supervisor restarts stay quiet).
 now_ts=$(date +%s)
 state=$(state_read)
+is_fresh_start=0
 if [[ "$(jq -r '.started_at' <<<"$state")" == "0" ]]; then
   state=$(jq --argjson n "$now_ts" '.started_at = $n | .hourly_mark = $n' <<<"$state")
   state_write "$state"
+  is_fresh_start=1
 fi
 
 # ---------- helpers ----------
@@ -341,12 +345,14 @@ Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps."
   state_bump ok
 }
 
-# ---------- announce start ----------
-tg_send "🟢 *forever.sh started* — \`$(hostname)\`
+# ---------- announce start (only on truly-fresh start, not supervisor restarts) ----------
+if (( is_fresh_start )); then
+  tg_send "🟢 *forever.sh started* — \`$(hostname)\`
 $(date '+%F %T %Z')
 model: \`$MODEL\`
 ontology: \`$(jq -r '.ingredients | length' "$ONTOLOGY") ingredients · $(jq -r '.cuisines | length' "$ONTOLOGY") cuisines\`
 loop sleep: ${LOOP_SLEEP}s"
+fi
 
 # ---------- main loop ----------
 trap 'tg_send "🔴 forever.sh *stopped* on \`$(hostname)\` at $(date +%T)"; exit' INT TERM
