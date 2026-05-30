@@ -134,11 +134,9 @@ export default async function Home() {
       {/* Mobile sticky bottom dock — chips + composer, floats above keyboard */}
       <MobileDock defaultCuisine={suggestedCuisine} country={country} />
 
-      {/* Recent recipes (from user's device) */}
-      <RecentRecipes />
-
-      {/* Don't know what to eat? — desktop-only (mobile has compact SurpriseTile in hero) */}
-      <section className="hidden md:block mt-12 relative">
+      {/* Don't know what to eat? — desktop-only (mobile has compact SurpriseTile in hero).
+          Moved above RecentRecipes/Trending per user feedback: indecisive users want this first. */}
+      <section className="hidden md:block mt-6 relative">
         {/* One subtle floating emoji, not a swarm */}
         <div aria-hidden className="absolute -top-4 -right-2 text-3xl opacity-60 animate-float-slow pointer-events-none">🍲</div>
 
@@ -181,6 +179,9 @@ export default async function Home() {
           </div>
         </div>
       </section>
+
+      {/* Recent recipes (from user's device) */}
+      <RecentRecipes />
 
       {/* Trending — mobile + desktop. Clean header, no overlapping decoration. */}
       <section className="mt-4 md:mt-12 relative">
