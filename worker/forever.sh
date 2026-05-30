@@ -38,25 +38,45 @@ set -uo pipefail  # NOT -e: we WANT the loop to keep going on errors
 GH_ORG="${GH_ORG:-foodrecipes-page}"
 WORK="${WORK:-$HOME/frp-shards}"
 ONTOLOGY="${ONTOLOGY:-$WORK/ontology.json}"
+LLM_BACKEND="${LLM_BACKEND:-ollama}"           # ollama | groq
+WORKER_LABEL="${WORKER_LABEL:-A}"               # short tag for logs/state
 MODEL="${MODEL:-qwen2.5:3b}"
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+GROQ_URL="${GROQ_URL:-https://api.groq.com/openai/v1/chat/completions}"
+GROQ_MODEL="${GROQ_MODEL:-llama-3.3-70b-versatile}"
+NVIDIA_URL="${NVIDIA_URL:-https://integrate.api.nvidia.com/v1/chat/completions}"
+NVIDIA_MODEL="${NVIDIA_MODEL:-meta/llama-3.3-70b-instruct}"
+OCLOUD_URL="${OCLOUD_URL:-https://ollama.com/api/chat}"
+OCLOUD_MODEL="${OCLOUD_MODEL:-gpt-oss:20b}"
 LOOP_SLEEP="${LOOP_SLEEP:-10}"
-STATE_FILE="$HOME/frp-state.json"
+STATE_FILE="${STATE_FILE:-$HOME/frp-state-${WORKER_LABEL}.json}"
+LOCK_FILE="${LOCK_FILE:-$WORK/.forever-${WORKER_LABEL}.lock}"
 
 LETTERS=(a b c d e f g h i j k l m n o p q r s t u v w x y z misc)
 
-# ---------- single-instance lock ----------
+# ---------- single-instance lock (per worker label) ----------
 mkdir -p "$WORK"
-exec 9>"$WORK/.forever.lock"
+exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-  echo "[$(date '+%F %T')] another forever.sh is running, exiting"
+  echo "[$(date '+%F %T')] another forever.sh ($WORKER_LABEL) is running, exiting"
   exit 0
 fi
 
 # ---------- sanity ----------
-for bin in jq curl git ollama; do
+for bin in jq curl git; do
   command -v "$bin" >/dev/null || { echo "missing dependency: $bin"; exit 2; }
 done
+if [[ "$LLM_BACKEND" == "ollama" ]]; then
+  command -v ollama >/dev/null || { echo "missing dependency: ollama"; exit 2; }
+elif [[ "$LLM_BACKEND" == "groq" ]]; then
+  [[ -n "${GROQ_API_KEY:-}" ]] || { echo "GROQ_API_KEY not set"; exit 2; }
+elif [[ "$LLM_BACKEND" == "nvidia" ]]; then
+  [[ -n "${NVIDIA_API_KEY:-}" ]] || { echo "NVIDIA_API_KEY not set"; exit 2; }
+elif [[ "$LLM_BACKEND" == "ocloud" ]]; then
+  [[ -n "${OCLOUD_API_KEY:-}" ]] || { echo "OCLOUD_API_KEY not set"; exit 2; }
+else
+  echo "unknown LLM_BACKEND=$LLM_BACKEND"; exit 2
+fi
 [[ -f "$ONTOLOGY" ]] || { echo "ontology not found: $ONTOLOGY"; exit 2; }
 
 # ---------- state helpers ----------
@@ -106,6 +126,70 @@ pick_one() {
     | shuf -n 1
 }
 
+# ---------- cloud cooldown (429 budget exhausted) ----------
+# When a provider rate-limits us with a long retry hint (e.g. "try again in
+# 12.96s" or daily-quota-style messages), we persist resume_at_epoch to a
+# per-worker file. Subsequent ticks block on it until expiry rather than
+# burning the loop. After expiry the file is removed.
+COOLDOWN_FILE="$HOME/.frp-cooldown-${WORKER_LABEL}"
+
+cooldown_active_secs() {
+  # echoes positive seconds remaining if cooldown active, else echoes 0.
+  [[ -f "$COOLDOWN_FILE" ]] || { echo 0; return 0; }
+  local until_ts now remain
+  until_ts=$(cat "$COOLDOWN_FILE" 2>/dev/null | tr -dc 0-9)
+  [[ -z "$until_ts" ]] && { echo 0; return 0; }
+  now=$(date +%s)
+  remain=$(( until_ts - now ))
+  if (( remain <= 0 )); then
+    rm -f "$COOLDOWN_FILE"
+    echo 0
+  else
+    echo "$remain"
+  fi
+}
+
+set_cooldown() {
+  # $1 = seconds to wait. Writes resume epoch.
+  local s="$1"
+  [[ -z "$s" || "$s" -le 0 ]] && return 0
+  echo "$(( $(date +%s) + s ))" > "$COOLDOWN_FILE"
+  echo "  [$WORKER_LABEL] cooldown: $s seconds (until $(date -d @$(cat $COOLDOWN_FILE) '+%T' 2>/dev/null || cat $COOLDOWN_FILE))" >&2
+}
+
+# Parse a Groq/OpenAI-style 429 body or Retry-After header into seconds.
+# Returns sane default (60) if nothing extractable, capped at 24h.
+parse_retry_seconds() {
+  local body="$1" header_secs="${2:-}"
+  # 1. explicit Retry-After header (seconds)
+  if [[ -n "$header_secs" && "$header_secs" =~ ^[0-9]+$ ]]; then
+    (( header_secs > 86400 )) && header_secs=86400
+    echo "$header_secs"; return 0
+  fi
+  # 2. "Please try again in 12.96s" / "in 1m23s" / "in 3h"
+  local s
+  s=$(printf '%s' "$body" | grep -oE 'try again in [0-9]+m?[0-9]*\.?[0-9]*[smh]?' | head -1)
+  if [[ -n "$s" ]]; then
+    # crude: extract first number, treat "h" as 3600, "m" as 60, default seconds.
+    local n unit
+    n=$(printf '%s' "$s" | grep -oE '[0-9]+\.?[0-9]*' | head -1)
+    unit=$(printf '%s' "$s" | grep -oE '[smh]' | head -1)
+    n=${n%.*}                  # drop fractional
+    [[ -z "$n" ]] && n=60
+    case "$unit" in
+      h) echo $(( n * 3600 )); return 0 ;;
+      m) echo $(( n * 60 ));   return 0 ;;
+      *) echo "$n";            return 0 ;;
+    esac
+  fi
+  # 3. Daily/TPD exhaustion → cool 1h
+  if printf '%s' "$body" | grep -qiE 'tokens per day|requests per day|daily|TPD|RPD'; then
+    echo 3600; return 0
+  fi
+  # 4. Default
+  echo 60
+}
+
 # Ollama JSON-mode call. $1 = prompt. Prints JSON (or empty on failure).
 # think:false disables qwen3's reasoning tokens (otherwise .response is empty).
 ollama_json() {
@@ -115,6 +199,120 @@ ollama_json() {
   curl -fsS --max-time 600 "$OLLAMA_URL/api/generate" \
     -H 'Content-Type: application/json' -d "$body" 2>/dev/null \
     | jq -r '.response // empty' 2>/dev/null
+}
+
+# Groq JSON-mode call (OpenAI-compatible). On 429 we parse the retry hint and
+# park the cooldown file so we don't burn the loop spinning.
+groq_json() {
+  local body resp http_code retry_after secs
+  body=$(jq -nc --arg m "$GROQ_MODEL" --arg p "$1" \
+    '{model: $m, temperature: 0.8, response_format: {type: "json_object"},
+      messages: [{role: "user", content: $p}]}')
+  # Capture headers + body + status.
+  local tmp_h; tmp_h=$(mktemp)
+  resp=$(curl -sS --max-time 60 -D "$tmp_h" -w '\n__HTTP__%{http_code}' "$GROQ_URL" \
+    -H "Authorization: Bearer ${GROQ_API_KEY}" \
+    -H 'Content-Type: application/json' \
+    -d "$body" 2>/dev/null)
+  local rc=$?
+  http_code=$(printf '%s' "$resp" | awk -F'__HTTP__' 'END{print $2}')
+  resp=$(printf '%s' "$resp" | sed 's/__HTTP__[0-9]*$//')
+  retry_after=$(grep -i '^retry-after:' "$tmp_h" 2>/dev/null | tr -d '\r' | awk '{print $2}' | head -1)
+  rm -f "$tmp_h"
+  if (( rc != 0 )) && [[ -z "$http_code" ]]; then sleep 5; return 0; fi
+  if [[ "$http_code" == "429" ]]; then
+    secs=$(parse_retry_seconds "$resp" "$retry_after")
+    # Floor at 10s for Groq — sub-second retry-after often understates the
+    # real TPM bucket and we just thrash. Cap at the parsed value otherwise.
+    (( secs < 10 )) && secs=10
+    set_cooldown "$secs"
+    return 0
+  fi
+  if [[ "$http_code" != "200" ]]; then
+    echo "  groq HTTP $http_code" >&2
+    [[ "$http_code" =~ ^5 ]] && set_cooldown 30
+    sleep 3
+    return 0
+  fi
+  jq -r '.choices[0].message.content // empty' <<<"$resp" 2>/dev/null
+}
+
+# NVIDIA NIM (build.nvidia.com) — OpenAI-compatible.
+nvidia_json() {
+  local body resp http_code retry_after secs
+  body=$(jq -nc --arg m "$NVIDIA_MODEL" --arg p "$1" \
+    '{model: $m, temperature: 0.8, max_tokens: 2048,
+      messages: [{role: "user", content: ($p + "\n\nReturn ONLY a single JSON object — no prose, no markdown fences.")}]}')
+  local tmp_h; tmp_h=$(mktemp)
+  resp=$(curl -sS --max-time 90 -D "$tmp_h" -w '\n__HTTP__%{http_code}' "$NVIDIA_URL" \
+    -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json' \
+    -d "$body" 2>/dev/null)
+  local rc=$?
+  http_code=$(printf '%s' "$resp" | awk -F'__HTTP__' 'END{print $2}')
+  resp=$(printf '%s' "$resp" | sed 's/__HTTP__[0-9]*$//')
+  retry_after=$(grep -i '^retry-after:' "$tmp_h" 2>/dev/null | tr -d '\r' | awk '{print $2}' | head -1)
+  rm -f "$tmp_h"
+  if (( rc != 0 )) && [[ -z "$http_code" ]]; then sleep 5; return 0; fi
+  if [[ "$http_code" == "429" ]]; then
+    secs=$(parse_retry_seconds "$resp" "$retry_after")
+    set_cooldown "$secs"
+    return 0
+  fi
+  if [[ "$http_code" != "200" ]]; then
+    echo "  nvidia HTTP $http_code" >&2
+    [[ "$http_code" =~ ^5 ]] && set_cooldown 30
+    sleep 3
+    return 0
+  fi
+  local content
+  content=$(jq -r '.choices[0].message.content // empty' <<<"$resp" 2>/dev/null)
+  printf '%s' "$content" | sed -E 's/^[[:space:]]*```[a-zA-Z]*[[:space:]]*//; s/[[:space:]]*```[[:space:]]*$//'
+}
+
+# Ollama Cloud (ollama.com/api/chat) — native chat shape with bearer auth.
+ocloud_json() {
+  local body resp http_code retry_after secs
+  body=$(jq -nc --arg m "$OCLOUD_MODEL" --arg p "$1" \
+    '{model: $m, stream: false,
+      options: {temperature: 0.8},
+      messages: [{role: "user", content: ($p + "\n\nReturn ONLY a single JSON object — no prose, no markdown fences.")}]}')
+  local tmp_h; tmp_h=$(mktemp)
+  resp=$(curl -sS --max-time 120 -D "$tmp_h" -w '\n__HTTP__%{http_code}' "$OCLOUD_URL" \
+    -H "Authorization: Bearer ${OCLOUD_API_KEY}" \
+    -H 'Content-Type: application/json' \
+    -d "$body" 2>/dev/null)
+  local rc=$?
+  http_code=$(printf '%s' "$resp" | awk -F'__HTTP__' 'END{print $2}')
+  resp=$(printf '%s' "$resp" | sed 's/__HTTP__[0-9]*$//')
+  retry_after=$(grep -i '^retry-after:' "$tmp_h" 2>/dev/null | tr -d '\r' | awk '{print $2}' | head -1)
+  rm -f "$tmp_h"
+  if (( rc != 0 )) && [[ -z "$http_code" ]]; then sleep 5; return 0; fi
+  if [[ "$http_code" == "429" ]]; then
+    secs=$(parse_retry_seconds "$resp" "$retry_after")
+    set_cooldown "$secs"
+    return 0
+  fi
+  if [[ "$http_code" != "200" ]]; then
+    echo "  ocloud HTTP $http_code" >&2
+    [[ "$http_code" =~ ^5 ]] && set_cooldown 30
+    sleep 3
+    return 0
+  fi
+  local content
+  content=$(jq -r '.message.content // empty' <<<"$resp" 2>/dev/null)
+  printf '%s' "$content" | sed -E 's/^[[:space:]]*```[a-zA-Z]*[[:space:]]*//; s/[[:space:]]*```[[:space:]]*$//'
+}
+
+# Unified front-door: route by $LLM_BACKEND.
+llm_json() {
+  case "$LLM_BACKEND" in
+    groq)   groq_json   "$1" ;;
+    nvidia) nvidia_json "$1" ;;
+    ocloud) ocloud_json "$1" ;;
+    *)      ollama_json "$1" ;;
+  esac
 }
 
 slugify() {
@@ -139,49 +337,42 @@ slug_ok() {
   return 0
 }
 
-# ---------- hourly report ----------
+# ---------- window roll ----------
+# Per-worker counters are read by an external consolidated reporter
+# (tg-reporter.sh) every REPORT_INTERVAL seconds. Here we just roll the
+# window: when interval elapses, we copy {ok,fail,skipped} into
+# {last_window_ok,...} and reset the live counters. Reporter reads the
+# last_window_* fields so it always sees a complete bucket.
 maybe_report() {
   local now=$(date +%s)
   local mark; mark=$(jq -r '.hourly_mark' "$STATE_FILE")
   local elapsed=$(( now - mark ))
-  (( elapsed >= 1800 )) || return 0
-
-  # Per-letter counts (local, no API)
-  local total=0
-  local lines=""
-  for L in "${LETTERS[@]}"; do
-    local n=0
-    [[ -d "$WORK/repos/recipes-$L/recipes" ]] \
-      && n=$(find "$WORK/repos/recipes-$L/recipes" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
-    total=$(( total + n ))
-    (( n > 0 )) && lines+="$(printf '  %-4s %4d\n' "$L" "$n")"
-  done
+  local interval="${REPORT_INTERVAL:-900}"
+  (( elapsed >= interval )) || return 0
 
   local s; s=$(state_read)
-  local ok=$(jq -r '.ok'      <<<"$s")
-  local fail=$(jq -r '.fail'  <<<"$s")
-  local skip=$(jq -r '.skipped' <<<"$s")
-  local start=$(jq -r '.started_at' <<<"$s")
-  local up_min=$(( (now - start) / 60 ))
-  local free_mb; free_mb=$(awk '/^MemAvailable:/ {print int($2/1024); exit}' /proc/meminfo 2>/dev/null || echo "?")
-  local host; host=$(hostname)
-
-  tg_send "🍳 *forever.sh* — \`$host\`
-$(date '+%F %T %Z')
-
-*Total recipes on disk:* $total
-*Last 30 min:* OK $ok · FAIL $fail · SKIP $skip
-*Uptime:* ${up_min} min   *Free RAM:* ${free_mb} MB
-
-\`\`\`
-$lines\`\`\`"
-
-  # Reset hourly counters and advance the mark.
-  state_write "$(jq --argjson n "$now" '.hourly_mark = $n | .ok = 0 | .fail = 0 | .skipped = 0 | .last_report = $n' <<<"$s")"
+  state_write "$(jq --argjson n "$now" '
+    .last_window_ok      = (.ok      // 0) |
+    .last_window_fail    = (.fail    // 0) |
+    .last_window_skipped = (.skipped // 0) |
+    .last_window_secs    = ($n - .hourly_mark) |
+    .hourly_mark = $n |
+    .ok = 0 | .fail = 0 | .skipped = 0 |
+    .last_report = $n' <<<"$s")"
 }
 
 # ---------- one tick ----------
 do_tick() {
+  # Cooldown gate (set by cloud 429 handlers): nap and bail.
+  local cd; cd=$(cooldown_active_secs)
+  if (( cd > 0 )); then
+    local nap=$(( cd > 120 ? 120 : cd ))
+    echo "[$(date '+%T')] [$WORKER_LABEL] cooldown active ${cd}s — sleeping ${nap}s"
+    state_bump skipped
+    sleep "$nap"
+    return 0
+  fi
+
   # Skip if memory is tight.
   local avail_kb; avail_kb=$(awk '/^MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 999999999)
   if (( avail_kb < 500000 )); then
@@ -216,7 +407,7 @@ do_tick() {
   local name_extras=""
   while (( attempt < 2 )); do
     attempt=$(( attempt + 1 ))
-    name_raw=$(ollama_json "For this brief: $combo
+    name_raw=$(llm_json "For this brief: $combo
 
 Return ONLY JSON with these fields:
 {
@@ -230,7 +421,28 @@ Plain ASCII letters and spaces only — NO accents, NO unicode, NO camelCase, NO
 DO NOT default to Stir-fry or Crumble unless the technique truly demands it — match dish_form to the cuisine and technique.")
     name=$(jq -r '.name // empty' <<<"$name_raw" 2>/dev/null)
     name_extras=$(jq -c '{cuisine_adjective: (.cuisine_adjective//null), main_ingredient: (.main_ingredient//null), descriptor: (.descriptor//null), dish_form: (.dish_form//null)}' <<<"$name_raw" 2>/dev/null)
-    [[ -z "$name" ]] && { echo "  ollama gave no name (attempt $attempt)"; continue; }
+    # Fallback: if .name is missing but the structured fields are present,
+    # synthesize "<descriptor> <cuisine_adjective> <main_ingredient> <dish_form>".
+    # 8b-class models often skip the redundant .name field even with json_object.
+    if [[ -z "$name" ]] && [[ -n "$name_raw" ]]; then
+      local syn_d syn_c syn_i syn_f
+      syn_d=$(jq -r '.descriptor // empty'        <<<"$name_raw" 2>/dev/null)
+      syn_c=$(jq -r '.cuisine_adjective // empty' <<<"$name_raw" 2>/dev/null)
+      syn_i=$(jq -r '.main_ingredient // empty'   <<<"$name_raw" 2>/dev/null)
+      syn_f=$(jq -r '.dish_form // empty'         <<<"$name_raw" 2>/dev/null)
+      if [[ -n "$syn_c" && -n "$syn_i" && -n "$syn_f" ]]; then
+        name="${syn_d:+$syn_d }$syn_c $syn_i $syn_f"
+      fi
+    fi
+    if [[ -z "$name" ]]; then
+      # If a cooldown was just set by the cloud handler, this is a soft 429,
+      # not a model failure. Bail out without burning the retry slot.
+      if (( $(cooldown_active_secs) > 0 )); then
+        echo "  $LLM_BACKEND throttled (attempt $attempt) — cooldown active"
+        state_bump skipped; return 0
+      fi
+      echo "  $LLM_BACKEND gave no name (attempt $attempt)"; continue
+    fi
     slug=$(slugify "$name")
     if slug_ok "$slug"; then break; fi
     echo "  malformed slug '$slug' from name '$name' (attempt $attempt)"
@@ -274,10 +486,15 @@ Return ONLY valid JSON matching this shape — no markdown, no commentary:
 Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps."
   while (( recipe_attempt < 2 )); do
     recipe_attempt=$(( recipe_attempt + 1 ))
-    recipe_raw=$(ollama_json "$recipe_prompt")
+    recipe_raw=$(llm_json "$recipe_prompt")
     if jq -e '(.title|type=="string") and (.ingredients|type=="array") and (.instructions|type=="array") and (.ingredients|length>0) and (.instructions|length>0)' \
          >/dev/null 2>&1 <<<"$recipe_raw"; then
       break
+    fi
+    # Same idea here: a fresh cooldown means soft 429, not a bad shape.
+    if (( $(cooldown_active_secs) > 0 )); then
+      echo "  $LLM_BACKEND throttled mid-recipe — cooldown active"
+      state_bump skipped; return 0
     fi
     echo "  invalid recipe shape for $slug (attempt $recipe_attempt)"
     recipe_raw=""
@@ -287,9 +504,14 @@ Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps."
   fi
 
   # Enrich with metadata + combo fingerprint.
+  local source_tag
+  if [[ "$LLM_BACKEND" == "groq" ]]; then source_tag="groq-$GROQ_MODEL"
+  elif [[ "$LLM_BACKEND" == "nvidia" ]]; then source_tag="nvidia-$NVIDIA_MODEL"
+  elif [[ "$LLM_BACKEND" == "ocloud" ]]; then source_tag="ocloud-$OCLOUD_MODEL"
+  else source_tag="ollama-$MODEL"; fi
   recipe=$(jq \
     --arg slug "$slug" \
-    --arg model "$MODEL" \
+    --arg src "$source_tag" \
     --arg now "$(date -u +%FT%TZ)" \
     --arg flavor "$flavor" --arg texture "$texture" --arg mood "$mood" \
     --arg technique "$technique" --arg ingredient "$ingredient" --arg diet "$diet" \
@@ -297,9 +519,9 @@ Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps."
     --argjson nx "${name_extras:-null}" '
     . + {
       slug: $slug,
-      source: ("ollama-" + $model),
+      source: $src,
       canonicalUrl: ("https://foodrecipes.page/r/" + $slug),
-      providerUsed: ("ollama-" + $model),
+      providerUsed: $src,
       createdAt: $now,
       axes: {
         flavor: $flavor, texture: $texture, mood: $mood,
@@ -312,50 +534,31 @@ Rules: realistic quantities, safe cooking temps, 4-12 ingredients, 4-12 steps."
       }
     }' <<<"$recipe_raw")
 
-  # 3. Write + update index.
+  # 3. Write recipe + update index, under a per-repo flock.
+  #    Git commit/push is handled separately by git-pusher.sh on a fixed
+  #    interval — keeps ollama generation fast and amortises pushes.
   mkdir -p "$repo/recipes"
-  echo "$recipe" | jq '.' > "$repo/recipes/$slug.json" || { echo "  write failed"; state_bump fail; return 0; }
-
-  # Upsert in index.json
-  [[ -f "$repo/index.json" ]] || echo "[]" > "$repo/index.json"
-  jq -e 'type == "array"' "$repo/index.json" >/dev/null 2>&1 || echo "[]" > "$repo/index.json"
-  local entry
-  entry=$(jq --arg L "$letter" '{slug, title, tags: (.tags // []), cuisine, totalTimeMin, shard: $L}' <<<"$recipe")
-  jq --argjson e "$entry" '
-    map(select(.slug != $e.slug)) + [$e] | sort_by(.slug)
-  ' "$repo/index.json" > "$repo/index.json.tmp" && mv -f "$repo/index.json.tmp" "$repo/index.json"
-
-  # 4. Commit + push.
   (
-    cd "$repo" \
-      && git add recipes/ index.json \
-      && git commit --quiet -m "recipe: $slug" \
-      && for t in 1 2 3; do
-           git push --quiet origin main 2>/dev/null && break
-           git pull --quiet --rebase --autostash 2>/dev/null || true
-           sleep $(( t * 2 ))
-         done
-  ) || { echo "  git push failed for $slug"; state_bump fail; return 0; }
+    flock 8
+    echo "$recipe" | jq '.' > "$repo/recipes/$slug.json" || exit 1
+    [[ -f "$repo/index.json" ]] || echo "[]" > "$repo/index.json"
+    jq -e 'type == "array"' "$repo/index.json" >/dev/null 2>&1 || echo "[]" > "$repo/index.json"
+    local entry
+    entry=$(jq --arg L "$letter" '{slug, title, tags: (.tags // []), cuisine, totalTimeMin, shard: $L}' <<<"$recipe")
+    jq --argjson e "$entry" '
+      map(select(.slug != $e.slug)) + [$e] | sort_by(.slug)
+    ' "$repo/index.json" > "$repo/index.json.tmp" && mv -f "$repo/index.json.tmp" "$repo/index.json"
+  ) 8>"$repo/.frp-write.lock" || { echo "  write failed for $slug"; state_bump fail; return 0; }
 
-  # 5. Purge jsDelivr in background.
-  (curl -fsS -m 10 "https://purge.jsdelivr.net/gh/$GH_ORG/recipes-$letter@main/recipes/$slug.json" >/dev/null 2>&1 &)
-  (curl -fsS -m 10 "https://purge.jsdelivr.net/gh/$GH_ORG/recipes-$letter@main/index.json"         >/dev/null 2>&1 &)
-
-  echo "[$(date '+%T')] OK $letter/$slug"
+  echo "[$(date '+%T')] OK $letter/$slug (queued for push)"
   state_bump ok
 }
 
-# ---------- announce start (only on truly-fresh start, not supervisor restarts) ----------
-if (( is_fresh_start )); then
-  tg_send "🟢 *forever.sh started* — \`$(hostname)\`
-$(date '+%F %T %Z')
-model: \`$MODEL\`
-ontology: \`$(jq -r '.ingredients | length' "$ONTOLOGY") ingredients · $(jq -r '.cuisines | length' "$ONTOLOGY") cuisines\`
-loop sleep: ${LOOP_SLEEP}s"
-fi
+# ---------- announce start (silent — consolidated reporter handles all Telegram) ----------
+# (Per-worker banners removed; tg-reporter.sh sends one combined report every 15 min.)
 
 # ---------- main loop ----------
-trap 'tg_send "🔴 forever.sh *stopped* on \`$(hostname)\` at $(date +%T)"; exit' INT TERM
+trap 'exit' INT TERM
 
 while :; do
   do_tick || true
