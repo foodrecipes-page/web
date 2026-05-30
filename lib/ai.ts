@@ -98,6 +98,14 @@ async function callGemini(key: string, prompt: string): Promise<string> {
 
 function providers(): Provider[] {
   return [
+    // Gemini first — 1500 RPD / 1M TPM free is the most generous quota.
+    {
+      name: "gemini",
+      enabled: !!process.env.GEMINI_API_KEY,
+      call: (p) => callGemini(process.env.GEMINI_API_KEY!, p),
+    },
+    // Groq second — switched to 8b-instant (14400 RPD / 500k TPM free).
+    // 70B-versatile has ~50 RPD on free tier and burns out instantly.
     {
       name: "groq",
       enabled: !!process.env.GROQ_API_KEY,
@@ -105,14 +113,9 @@ function providers(): Provider[] {
         callOpenAICompat({
           url: "https://api.groq.com/openai/v1/chat/completions",
           key: process.env.GROQ_API_KEY!,
-          model: "llama-3.3-70b-versatile",
+          model: "llama-3.1-8b-instant",
           prompt: p,
         }),
-    },
-    {
-      name: "gemini",
-      enabled: !!process.env.GEMINI_API_KEY,
-      call: (p) => callGemini(process.env.GEMINI_API_KEY!, p),
     },
     {
       name: "cerebras",

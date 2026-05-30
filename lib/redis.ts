@@ -11,15 +11,39 @@ export function redis(): Redis | null {
   return _redis;
 }
 
-/** Rate limit anonymous users generating new recipes. */
+/** Per-IP rate limit: 5 generations per hour. */
 export function rateLimiter(): Ratelimit | null {
   const r = redis();
   if (!r) return null;
   return new Ratelimit({
     redis: r,
-    limiter: Ratelimit.slidingWindow(10, "1 h"),
+    limiter: Ratelimit.slidingWindow(5, "1 h"),
     analytics: true,
     prefix: "frp:rl:gen",
+  });
+}
+
+/** Per-IP daily cap: 20 generations per day. */
+export function dailyLimiter(): Ratelimit | null {
+  const r = redis();
+  if (!r) return null;
+  return new Ratelimit({
+    redis: r,
+    limiter: Ratelimit.slidingWindow(20, "1 d"),
+    analytics: true,
+    prefix: "frp:rl:gen:d",
+  });
+}
+
+/** Global cap across ALL users: 500 generations per day. Protects free-tier quotas. */
+export function globalLimiter(): Ratelimit | null {
+  const r = redis();
+  if (!r) return null;
+  return new Ratelimit({
+    redis: r,
+    limiter: Ratelimit.slidingWindow(500, "1 d"),
+    analytics: true,
+    prefix: "frp:rl:gen:global",
   });
 }
 

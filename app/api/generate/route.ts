@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { buildCacheKey } from "@/lib/parser";
 import { fetchWithLadder } from "@/lib/shards";
 import { generateRecipe } from "@/lib/ai";
-import { enqueueRecipe, rateLimiter } from "@/lib/redis";
+import { enqueueRecipe, rateLimiter, dailyLimiter, globalLimiter } from "@/lib/redis";
 import type { Recipe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -46,14 +46,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ slug: cached.recipe.slug, source: "cache", keyUsed: cached.keyUsed });
   }
 
-  // 2) Rate limit before AI call
-  const rl = rateLimiter();
-  if (rl) {
-    const ip = getIp(req);
-    const { success, reset } = await rl.limit(ip);
+  // 2) Rate limit before AI call — three tiers: hourly per-IP, daily per-IP, global daily.
+  const ip = getIp(req);
+  const rlHour = rateLimiter();
+  if (rlHour) {
+    const { success, reset } = await rlHour.limit(ip);
     if (!success) {
       return NextResponse.json(
-        { error: "Rate limit reached. Try again in a bit.", resetAt: reset },
+        { error: "Hourly limit reached (5/hr). Try again later.", resetAt: reset },
+        { status: 429 }
+      );
+    }
+  }
+  const rlDay = dailyLimiter();
+  if (rlDay) {
+    const { success, reset } = await rlDay.limit(ip);
+    if (!success) {
+      return NextResponse.json(
+        { error: "Daily limit reached (20/day). Try again tomorrow.", resetAt: reset },
+        { status: 429 }
+      );
+    }
+  }
+  const rlGlobal = globalLimiter();
+  if (rlGlobal) {
+    const { success, reset } = await rlGlobal.limit("global");
+    if (!success) {
+      return NextResponse.json(
+        { error: "Site-wide AI quota exhausted for today. Browse 29k+ existing recipes instead.", resetAt: reset },
         { status: 429 }
       );
     }
